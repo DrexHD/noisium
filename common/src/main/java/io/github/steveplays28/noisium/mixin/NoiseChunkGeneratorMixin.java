@@ -1,22 +1,23 @@
 package io.github.steveplays28.noisium.mixin;
 
-import com.llamalad7.mixinextras.sugar.Local;
+import com.google.common.collect.Sets;
 import net.minecraft.block.BlockState;
-import net.minecraft.util.Util;
 import net.minecraft.world.biome.source.BiomeSource;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.ChunkSection;
 import net.minecraft.world.gen.StructureAccessor;
-import net.minecraft.world.gen.chunk.*;
+import net.minecraft.world.gen.chunk.Blender;
+import net.minecraft.world.gen.chunk.ChunkGenerator;
+import net.minecraft.world.gen.chunk.GenerationShapeConfig;
+import net.minecraft.world.gen.chunk.NoiseChunkGenerator;
 import net.minecraft.world.gen.noise.NoiseConfig;
-import org.spongepowered.asm.mixin.*;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
+import java.util.HashSet;
 
 @Mixin(NoiseChunkGenerator.class)
 public abstract class NoiseChunkGeneratorMixin extends ChunkGenerator {
@@ -51,24 +52,38 @@ public abstract class NoiseChunkGeneratorMixin extends ChunkGenerator {
 		return blockState;
 	}
 
-	@Inject(method = "populateNoise(Ljava/util/concurrent/Executor;Lnet/minecraft/world/gen/chunk/Blender;Lnet/minecraft/world/gen/noise/NoiseConfig;Lnet/minecraft/world/gen/StructureAccessor;Lnet/minecraft/world/chunk/Chunk;)Ljava/util/concurrent/CompletableFuture;", at = @At(value = "INVOKE_ASSIGN", target = "Lnet/minecraft/world/chunk/Chunk;getSectionIndex(I)I", ordinal = 1), cancellable = true)
-	private void noisium$populateNoiseInject(Executor executor, Blender blender, NoiseConfig noiseConfig, StructureAccessor structureAccessor, Chunk chunk, CallbackInfoReturnable<CompletableFuture<Chunk>> cir, @Local(ordinal = 1) int minimumYFloorDiv, @Local(ordinal = 2) int generationShapeHeightFloorDiv, @Local(ordinal = 3) int startingChunkSectionIndex, @Local(ordinal = 4) int minimumYChunkSectionIndex) {
+	/**
+	 * @author Steveplays28, Drex
+	 * @reason Replace enhanced for loops with fori loops, Fail-fast
+	 */
+	@Overwrite
+	private Chunk method_38332(Chunk chunk, int generationShapeHeightFloorDiv, GenerationShapeConfig generationShapeConfig, int i, Blender blender, StructureAccessor structureAccessor, NoiseConfig noiseConfig, int minimumYFloorDiv) {
+		// [VanillaCopy]
+		int startingChunkSectionIndex = chunk.getSectionIndex(generationShapeHeightFloorDiv * generationShapeConfig.verticalCellBlockCount() - 1 + i);
+		int minimumYChunkSectionIndex = chunk.getSectionIndex(i);
+		// Vanilla
+//		HashSet<ChunkSection> lockedSections = Sets.newHashSet();
+//		for (int chunkSectionIndex = startingChunkSectionIndex; chunkSectionIndex >= minimumYChunkSectionIndex; --chunkSectionIndex) {
+//			ChunkSection chunkSection = chunk.getSection(chunkSectionIndex);
+//			chunkSection.lock();
+//			lockedSections.add(chunkSection);
+//		}
+		// Noisium
 		var chunkSections = chunk.getSectionArray();
 		for (int chunkSectionIndex = startingChunkSectionIndex; chunkSectionIndex >= minimumYChunkSectionIndex; --chunkSectionIndex) {
 			chunkSections[chunkSectionIndex].lock();
 		}
-
-		cir.setReturnValue(CompletableFuture.supplyAsync(
-				Util.debugSupplier(
-						"wgen_fill_noise",
-						() -> this.populateNoise(blender, structureAccessor, noiseConfig, chunk, minimumYFloorDiv,
-								generationShapeHeightFloorDiv
-						)
-				), Util.getMainWorkerExecutor()).whenCompleteAsync((chunk2, throwable) -> {
-			// Replace an enhanced for loop with a fori loop
+		try {
+			return this.populateNoise(blender, structureAccessor, noiseConfig, chunk, minimumYFloorDiv, generationShapeHeightFloorDiv);
+		} finally {
+			// Vanilla
+//			for (ChunkSection lockedSection : lockedSections) {
+//				lockedSection.unlock();
+//			}
+			// Noisium
 			for (int chunkSectionIndex = startingChunkSectionIndex; chunkSectionIndex >= minimumYChunkSectionIndex; --chunkSectionIndex) {
 				chunkSections[chunkSectionIndex].unlock();
 			}
-		}, executor));
+		}
 	}
 }
